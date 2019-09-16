@@ -362,8 +362,10 @@ class Trainer(TrainerIO):
     def __layout_bookeeping(self):
 
         # determine number of training batches
-        self.nb_tng_batches = len(self.tng_dataloader)
-        self.nb_tng_batches = int(self.nb_tng_batches * self.train_percent_check)
+        if self.tng_dataloader is not None:
+            self.nb_tng_batches = sum(len(dataloader) for dataloader in self.tng_dataloader)
+            self.nb_tng_batches = int(self.nb_tng_batches * self.train_percent_check)
+            self.nb_tng_batches = max(1, self.nb_tng_batches)
 
         # determine number of validation batches
         # val datasets could be none, 1 or 2+
