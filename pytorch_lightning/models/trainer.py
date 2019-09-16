@@ -504,25 +504,26 @@ class Trainer(TrainerIO):
         if have_val_loaders and not isinstance(self.val_dataloader, list):
             self.val_dataloader = [self.val_dataloader]
 
-        # COMMENT: workaround, but crashes otherwise probably
-        if self.use_ddp and not isinstance(self.tng_dataloader[0].sampler, DistributedSampler):
-            msg = """
-            You're using multiple gpus and multiple nodes without using a DistributedSampler
-            to assign a subset of your data to each process. To silence this warning, pass a
-            DistributedSampler to your DataLoader.
-
-            ie: this:
-            dataset = myDataset()
-            dataloader = Dataloader(dataset)
-
-            becomes:
-            dataset = myDataset()
-            dist_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
-            dataloader = Dataloader(dataset, sampler=dist_sampler)
-
-            If you want each process to load the full dataset, ignore this warning.
-            """
-            warnings.warn(msg)
+        if self.use_ddp and self.tng_dataloader is not None:
+            for dataloader in self.tng_dataloader:
+                if not isinstance(dataloader, DistributedSampler):
+                    msg = """
+                    You're using multiple gpus and multiple nodes without using a DistributedSampler
+                    to assign a subset of your data to each process. To silence this warning, pass a
+                    DistributedSampler to your DataLoader.
+        
+                    ie: this:
+                    dataset = myDataset()
+                    dataloader = Dataloader(dataset)
+        
+                    becomes:
+                    dataset = myDataset()
+                    dist_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+                    dataloader = Dataloader(dataset, sampler=dist_sampler)
+        
+                    If you want each process to load the full dataset, ignore this warning.
+                    """
+                    warnings.warn(msg)
 
         if self.use_ddp and self.val_dataloader is not None:
             for dataloader in self.val_dataloader:
