@@ -491,6 +491,10 @@ class Trainer(TrainerIO):
         self.test_dataloader = model.test_dataloader
         self.val_dataloader = model.val_dataloader
 
+        have_tng_loaders = self.tng_dataloader is not None
+        if have_tng_loaders and not isinstance(self.tng_dataloader, list):
+            self.tng_dataloader = [self.tng_dataloader]
+
         # handle returning an actual dataloader instead of a list of loaders
         have_test_loaders = self.test_dataloader is not None
         if have_test_loaders and not isinstance(self.test_dataloader, list):
@@ -500,7 +504,8 @@ class Trainer(TrainerIO):
         if have_val_loaders and not isinstance(self.val_dataloader, list):
             self.val_dataloader = [self.val_dataloader]
 
-        if self.use_ddp and not isinstance(self.tng_dataloader.sampler, DistributedSampler):
+        # COMMENT: workaround, but crashes otherwise probably
+        if self.use_ddp and not isinstance(self.tng_dataloader[0].sampler, DistributedSampler):
             msg = """
             You're using multiple gpus and multiple nodes without using a DistributedSampler
             to assign a subset of your data to each process. To silence this warning, pass a
