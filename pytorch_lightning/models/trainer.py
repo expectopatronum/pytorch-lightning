@@ -899,72 +899,73 @@ class Trainer(TrainerIO):
             model.on_epoch_start()
 
         # run epoch
-        for batch_nb, data_batch in enumerate(self.tng_dataloader):
-            self.batch_nb = batch_nb
-            self.global_step += 1
-
-            model = self.__get_model()
-            model.global_step = self.global_step
-
-            # stop when the flag is changed or we've gone past the amount
-            #  requested in the batches
-            self.total_batch_nb += 1
-            met_batch_limit = batch_nb > self.nb_tng_batches
-            if met_batch_limit:
-                break
-
-            # ---------------
-            # RUN TRAIN STEP
-            # ---------------
-            batch_result = self.__run_tng_batch(data_batch, batch_nb)
-            early_stop_epoch = batch_result == -1
-
-            # ---------------
-            # RUN VAL STEP
-            # ---------------
-            is_val_check_batch = (batch_nb + 1) % self.val_check_batch == 0
-            can_check_epoch = (self.current_epoch + 1) % self.check_val_every_n_epoch == 0
-            if self.fast_dev_run or is_val_check_batch or early_stop_epoch:
-                if can_check_epoch:
-                    self.__run_evaluation(test=self.testing)
-
-            # when batch should be saved
-            if (batch_nb + 1) % self.log_save_interval == 0 or early_stop_epoch:
-                if self.proc_rank == 0 and self.experiment is not None:
-                    self.experiment.save()
-
-            # when metrics should be logged
-            if batch_nb % self.add_log_row_interval == 0 or early_stop_epoch:
-                # count items in memory
-                # nb_params, nb_tensors = count_mem_items()
+        for dataloader_i, dataloader in enumerate(self.tng_dataloader):
+            for batch_nb, data_batch in enumerate(dataloader):
+                self.batch_nb = batch_nb
+                self.global_step += 1
 
                 model = self.__get_model()
-                metrics = self.__tng_tqdm_dic
+                model.global_step = self.global_step
 
-                # add gpu memory
-                if self.on_gpu:
-                    mem_map = get_gpu_memory_map()
-                    metrics.update(mem_map)
+                # stop when the flag is changed or we've gone past the amount
+                #  requested in the batches
+                self.total_batch_nb += 1
+                met_batch_limit = batch_nb > self.nb_tng_batches
+                if met_batch_limit:
+                    break
 
-                # add norms
-                if self.track_grad_norm > 0:
+                # ---------------
+                # RUN TRAIN STEP
+                # ---------------
+                batch_result = self.__run_tng_batch(data_batch, batch_nb, dataloader_i)
+                early_stop_epoch = batch_result == -1
+
+                # ---------------
+                # RUN VAL STEP
+                # ---------------
+                is_val_check_batch = (batch_nb + 1) % self.val_check_batch == 0
+                can_check_epoch = (self.current_epoch + 1) % self.check_val_every_n_epoch == 0
+                if self.fast_dev_run or is_val_check_batch or early_stop_epoch:
+                    if can_check_epoch:
+                        self.__run_evaluation(test=self.testing)
+
+                # when batch should be saved
+                if (batch_nb + 1) % self.log_save_interval == 0 or early_stop_epoch:
+                    if self.proc_rank == 0 and self.experiment is not None:
+                        self.experiment.save()
+
+                # when metrics should be logged
+                if batch_nb % self.add_log_row_interval == 0 or early_stop_epoch:
+                    # count items in memory
+                    # nb_params, nb_tensors = count_mem_items()
+
                     model = self.__get_model()
-                    grad_norm_dic = model.grad_norm(self.track_grad_norm)
-                    metrics.update(grad_norm_dic)
+                    metrics = self.__tng_tqdm_dic
 
-                if self.__is_function_implemented('on_tng_metrics'):
-                    model.on_tng_metrics(metrics)
+                    # add gpu memory
+                    if self.on_gpu:
+                        mem_map = get_gpu_memory_map()
+                        metrics.update(mem_map)
 
-                # log metrics
-                scalar_metrics = self.__metrics_to_scalars(
-                    metrics, blacklist=self.__log_vals_blacklist())
-                if self.proc_rank == 0 and self.experiment is not None:
-                    self.experiment.log(scalar_metrics, global_step=self.global_step)
-                    self.experiment.save()
+                    # add norms
+                    if self.track_grad_norm > 0:
+                        model = self.__get_model()
+                        grad_norm_dic = model.grad_norm(self.track_grad_norm)
+                        metrics.update(grad_norm_dic)
 
-            # end epoch early
-            if early_stop_epoch:
-                break
+                    if self.__is_function_implemented('on_tng_metrics'):
+                        model.on_tng_metrics(metrics)
+
+                    # log metrics
+                    scalar_metrics = self.__metrics_to_scalars(
+                        metrics, blacklist=self.__log_vals_blacklist())
+                    if self.proc_rank == 0 and self.experiment is not None:
+                        self.experiment.log(scalar_metrics, global_step=self.global_step)
+                        self.experiment.save()
+
+                # end epoch early
+                if early_stop_epoch:
+                    break
 
         # epoch end hook
         if self.__is_function_implemented('on_epoch_end'):
@@ -1025,7 +1026,7 @@ class Trainer(TrainerIO):
         # nothing matches, return the value as is without transform
         return batch
 
-    def __tng_forward(self, data_batch, batch_nb, opt_idx):
+    def __tng_forward(self, data_batch, batch_nb, opt_idx, dataloader_i):
         """
         Handle forward for each training case (distributed, single gpu, etc...)
         :param data_batch:
@@ -1039,6 +1040,8 @@ class Trainer(TrainerIO):
         args = [data_batch, batch_nb]
         if len(self.optimizers) > 1:
             args.append(opt_idx)
+        if len(self.tng_dataloader) > 1:
+            args.append(dataloader_i)
 
         if self.use_ddp:
             output = self.model(*args)
@@ -1096,7 +1099,7 @@ class Trainer(TrainerIO):
             for param in model.parameters():
                 print(param.grad.float().sum())
 
-    def __run_tng_batch(self, data_batch, batch_nb):
+    def __run_tng_batch(self, data_batch, batch_nb, dataloader_i):
         if data_batch is None:
             return 0
 
@@ -1115,7 +1118,7 @@ class Trainer(TrainerIO):
         for opt_idx, optimizer in enumerate(self.optimizers):
 
             # forward pass
-            loss, model_specific_tqdm_metrics = self.__tng_forward(data_batch, batch_nb, opt_idx)
+            loss, model_specific_tqdm_metrics = self.__tng_forward(data_batch, batch_nb, opt_idx, dataloader_i)
 
             # track metrics
             self.__add_tqdm_metrics(model_specific_tqdm_metrics)
