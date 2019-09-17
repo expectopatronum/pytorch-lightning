@@ -838,15 +838,15 @@ class Trainer(TrainerIO):
 
         # run tiny validation (if validation defined)
         # to make sure program won't crash during val
-        # ref_model.on_sanity_check_start()
-        # if self.val_dataloader is not None and self.nb_sanity_val_steps > 0:
-        #     for ds_i, dataloader in enumerate(self.val_dataloader):
-        #
-        #         # reset progress_bar limit for sanity check
-        #         if self.show_progress_bar:
-        #             self.progress_bar.reset(self.nb_sanity_val_steps)
-        #
-        #         self.evaluate(model, dataloader, self.nb_sanity_val_steps, ds_i, self.testing)
+        ref_model.on_sanity_check_start()
+        if self.val_dataloader is not None and self.nb_sanity_val_steps > 0:
+            for ds_i, dataloader in enumerate(self.val_dataloader):
+
+                # reset progress_bar limit for sanity check
+                if self.show_progress_bar:
+                    self.progress_bar.reset(self.nb_sanity_val_steps)
+
+                self.evaluate(model, dataloader, self.nb_sanity_val_steps, ds_i, self.testing)
 
         # ---------------------------
         # CORE TRAINING LOOP
@@ -899,9 +899,12 @@ class Trainer(TrainerIO):
             model.on_epoch_start()
 
         # run epoch
+        self.batch_nb = -1
         for dataloader_i, dataloader in enumerate(self.tng_dataloader):
-            for batch_nb, data_batch in enumerate(dataloader):
-                self.batch_nb = batch_nb
+            for _, data_batch in enumerate(dataloader):
+                # self.batch_nb = batch_nb
+                self.batch_nb += 1
+                batch_nb = self.batch_nb
                 self.global_step += 1
 
                 model = self.__get_model()
